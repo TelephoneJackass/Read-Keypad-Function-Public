@@ -1,0 +1,181 @@
+//read keypad input, pull character from preset array, load digits into password array given to function, return "password array full" or mode to change to
+uint8_t GetKeyPadInputAndLoadPasswordAttemptArrays(uint8_t* pointerToPasswordAttemptArray) {
+
+    _delay_ms(250);                                                             //delay to slow down transmission for readability
+    
+    //toggling pins back to correct starting setup in case of error return in switch case statements
+    PORTB = 00000000;                                                           //turn off pull-ups or all pins read high when function is re-triggered
+    _delay_ms(nop);                                     
+    DDRB = 0b00000000;
+    _delay_ms(nop);                                     
+    DDRB = 0b11110000;                                                          //pins 0-3 set inputs, pins 4-7 set output
+    _delay_ms(nop);                                     
+    PORTB = 0b00001111;                                                         //pins 0-3 set pull-ups, pins 4-7 set low
+    _delay_ms(nop);                                     
+    
+    //used to pull keypad value from keypad array near end of function
+    uint8_t column = 0;
+    uint8_t row = 0;
+    
+    //used to read pinpad row/ column inputs
+    uint8_t rowRead = 0;
+    uint8_t columnRead = 0;
+    
+    //read row input pins and invert for single digit value
+    rowRead = (~PINB & ((1<<PB0) | (1<<PB1) | (1<<PB2) | (1<<PB3)));            //input pins pulled high, read pins and invert to single out one pin
+    
+    //use rowRead input to turn single pin button push into row value - to be used in keypad array
+    switch (rowRead) {
+        
+        case 1 :
+            row = 0;
+            break;
+            
+         case 2 :
+            row = 1;
+            break;
+            
+        case 4 :
+            row = 2;
+            break;
+            
+         case 8 :
+            row = 3;
+            break;
+    
+        default :                                                               //if more or less than exactly one key is pressed, return this error code
+                return 'H';                                                     //can this return "nothing" without breaking the code?
+            break; 
+    }        
+    
+        DDRB = 0b00000000;
+        _delay_ms(nop);                                                     
+        PORTB = 0b00000000;                                                     //turn off pull-ups or all pins read high when toggled in next phase
+        _delay_ms(nop);                                                     
+        DDRB = 0b00001111;                                                      //pins 0-3 set output, pins 4-7 set inputs
+        _delay_ms(nop);                                                    
+        PORTB = 0b11110000;                                                     //pins 0-3 set low , pins 4-7 set pull-ups
+        _delay_ms(nop);                                                   
+        
+        //read column input pins and invert for single digit value
+        columnRead = (~PINB & ((1<<PB4) | (1<<PB5) | (1<<PB6) | (1<<PB7)));
+    
+    //use columnRead input to turn single pin button push into column value - to be used in keypad array
+    switch (columnRead) {
+        
+        case 16 :
+            column = 0;
+            break;
+            
+         case 32 :
+            column = 1;
+            break;
+            
+        case 64 :
+            column = 2;
+            break;
+            
+         case 128 :
+            column = 3;
+            break;
+    
+        default :                                                               //if more or less than exactly one key is pressed, return this error code
+                return 'H';                                                     //can this return "nothing" without breaking the code?
+            break; 
+    }      
+    
+    PORTB = 00000000;                                                           //turn off pull-ups or all pins read high when function is re-triggered
+    _delay_ms(nop);                                                     
+    DDRB = 0b00000000;
+    _delay_ms(nop);                                                     
+    DDRB = 0b11110000;                                                          //pins 0-3 set inputs, pins 4-7 set output
+    _delay_ms(nop);                                                     
+    PORTB = 0b00001111;                                                         //pins 0-3 set pull-ups, pins 4-7 set low
+    _delay_ms(nop);                                                     
+    
+    //get keypad value from global array variable
+    uint8_t pinPadInput = keyPadArray[row][column] ;
+    uint8_t changeModeToMsg [9] = {" CHANGE:"};
+    
+//if in change chime mode, 1 turns chimes on, 2 turns chimes off
+    if((systemStatus == ChangeChimes) && ((pinPadInput == '1') || (pinPadInput == '2'))) {
+        return pinPadInput;
+    }
+    
+    uint8_t static j = 0;
+    //default entry returns for most modes
+    //if numeric digit, load into password attempt array that was passed to this function
+    if((pinPadInput >= '0') && (pinPadInput <= '9')){
+
+        if(j < 4) {
+            (pointerToPasswordAttemptArray[j])= pinPadInput;
+            TransmitSerialByte(pinPadInput);
+            TransmitByteTWI('*');
+            TransmitSerialByte(j);
+            j++;
+            
+            if (j == 4){
+                j = 0;
+            return PasswordReady;                                               //password full
+            }
+        }  
+    }
+//return mode to be used by ChangeToMode function, only allowed to access this mode from disarmed status
+    else if ((pinPadInput == 'A') && (systemStatus == Disarmed)) {
+        uint8_t chimesMsg [8] = {" CHIMES"};
+        TransmitSerialMessage(changeModeToMsg);
+        TransmitSerialMessage(chimesMsg);
+        TransmitSerialMessage(nlcr);
+        SetLCDCursorPositionToTWI(SetCursorSecondLineStart);
+        TransmitStringTWI(changeModeToMsg);
+        TransmitStringTWI(chimesMsg);
+        SetLCDCursorPositionToTWI(SetCursorEnterPassword);
+        return ChangeChimes;
+    }
+//return mode to be used by ChangeToMode function, only allowed to access this mode from disarmed status
+    else if ((pinPadInput == 'B') && (systemStatus == Disarmed)){
+        uint8_t gracePeriodMsg [10] = {" GRACE PD"};
+        TransmitSerialMessage(changeModeToMsg);
+        TransmitSerialMessage(gracePeriodMsg);
+        TransmitSerialMessage(nlcr);
+        SetLCDCursorPositionToTWI(SetCursorSecondLineStart);
+        TransmitStringTWI(changeModeToMsg);
+        TransmitStringTWI(gracePeriodMsg);
+        SetLCDCursorPositionToTWI(SetCursorEnterPassword);
+        return ChangeGracePeriod;
+    }
+//return mode to be used by ChangeToMode function, only allowed to access this mode from disarmed status
+    else if ((pinPadInput == 'C') && (systemStatus == Disarmed)) {
+        uint8_t masterPinMsg [10] = {" MSTR PIN"};
+        TransmitSerialMessage(changeModeToMsg);
+        TransmitSerialMessage(masterPinMsg);
+        TransmitSerialMessage(nlcr);
+        SetLCDCursorPositionToTWI(SetCursorSecondLineStart);
+        TransmitStringTWI(changeModeToMsg);
+        TransmitStringTWI(masterPinMsg);
+        SetLCDCursorPositionToTWI(SetCursorEnterPassword);
+        return ChangeMasterPassword;
+    }
+//return mode to be used by ChangeToMode function, only allowed to access this mode from disarmed status
+    else if ((pinPadInput == 'D') && (systemStatus == Disarmed)) {
+        uint8_t doorMsg [10] = {" ENTRY DR"};
+        TransmitSerialMessage(changeModeToMsg);
+        TransmitSerialMessage(doorMsg);
+        TransmitSerialMessage(nlcr);
+        SetLCDCursorPositionToTWI(SetCursorSecondLineStart);
+        TransmitStringTWI(changeModeToMsg);
+        TransmitStringTWI(doorMsg);
+        SetLCDCursorPositionToTWI(SetCursorEnterPassword);
+        return ChangeEntryDoor;
+    }
+//erases current password attemp, resets c
+    else if (pinPadInput == '*' ) {
+        j = 0;
+        EraseThisPasswordAttempt(pointerToPasswordAttemptArray);
+    }
+//default return path for "ChangeToMode" function when used to exit from all other modes except armed/alarmed
+    else if ((pinPadInput == '#') && ((systemStatus != Armed) || (systemStatus != Alarmed))){
+        return Disarmed;
+    }
+    return 0;
+}
